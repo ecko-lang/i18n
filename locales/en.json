@@ -1,0 +1,4 @@
+{
+  "greeting": "Hello, {name}",
+  "items": { "one": "{n} item", "other": "{n} items" }
+}

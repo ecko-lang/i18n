@@ -1,0 +1,12 @@
+{
+  "module": "github.com/ecko-lang/i18n",
+  "version": "0.28.0",
+  "entrypoint": "main.ecko",
+  "description": "Message catalogues for Ecko: JSON files, {name} interpolation, and CLDR plural rules for the languages that need more than two forms.",
+  "author": "Sean Nieuwoudt <sean@underwulf.com>",
+  "license": "MIT",
+  "capabilities": [
+    "fs:read"
+  ],
+  "dependencies": {}
+}

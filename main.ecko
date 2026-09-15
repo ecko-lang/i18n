@@ -1,0 +1,152 @@
+# i18n - message catalogues, interpolation and plurals.
+#
+#   import i18n
+#
+#   t = i18n.load("locales/fr.json")
+#   i18n.tr(t, "greeting", { name: "Ada" })   # "Bonjour, Ada"
+#   i18n.plural(t, "items", 3)
+#
+# A catalogue is ordinary JSON: keys to strings, or keys to a map of CLDR plural
+# categories. Nothing is compiled and nothing is generated, so a translator can
+# edit the file and a reviewer can read the diff.
+#
+# Placeholders are `{name}`, filled from the map you pass. A missing placeholder
+# is an error rather than an empty space: a half-rendered sentence shipped to a
+# user is worse than one that fails in the test that should have caught it.
+
+import std.fs
+import "./plural.ecko" as rules
+
+fail = fn(message) error({ kind: "i18n", message: message })
+
+## load(path, lang?) -> a catalogue read from a JSON file.
+##
+## `lang` is the language tag used to pick plural forms. When it is not given it
+## is taken from the file's name, so `locales/fr.json` is French and
+## `locales/pt-BR.json` is Brazilian Portuguese.
+##
+## Needs `fs:read`.
+##
+## example:
+##   load("locales/fr.json")
+export fn load(path, lang = null) {
+    p = string(path)
+    unless fs.exists(p) { fail("i18n: no catalogue at '" + p + "'") }
+    raw = try {
+        json_decode(fs.read(p))
+    } catch (e) {
+        fail("i18n: '" + p + "' is not valid JSON: " + string(get(e, "message")))
+    }
+    unless type_of(raw) == "map" {
+        fail("i18n: '" + p + "' must hold a JSON object of keys to messages")
+    }
+    catalog(raw, if is_null(lang) { fs.basename(p) } else { lang })
+}
+
+## catalog(messages, lang) -> a catalogue from a map you already have.
+##
+## The form to use when the messages are embedded, fetched, or assembled rather
+## than read from disk. Needs no capabilities.
+##
+## example:
+##   catalog({ greeting: "Hello, {name}" }, "en")
+export fn catalog(messages, lang) {
+    unless type_of(messages) == "map" { fail("i18n: a catalogue is a map of keys to messages") }
+    # "pt-BR.json" and "pt-BR" both mean pt-BR.
+    tag = replace(replace(string(lang), ".json", ""), "_", "-")
+    { lang: tag, messages: messages }
+}
+
+# Substitute {name} placeholders. Deliberately not Ecko's own interpolation:
+# these strings arrive from a file at runtime, long after parse time.
+fn fill(msg, vars, key) {
+    src = string(msg)
+    cs = chars(src)
+    n = len(cs)
+    mut out = []
+    mut i = 0
+    while i < n {
+        c = cs[i]
+        if c == r"{" and i + 1 < n and cs[i + 1] == r"{" {
+            out = push(out, r"{")
+            i = i + 2
+        } else if c == r"}" and i + 1 < n and cs[i + 1] == r"}" {
+            out = push(out, r"}")
+            i = i + 2
+        } else if c == r"{" {
+            mut j = i + 1
+            while j < n and cs[j] != r"}" {
+                j = j + 1
+            }
+            if j >= n { fail(r"i18n: unclosed brace in message '" + key + "'") }
+            name = src[i + 1..j]
+            unless contains(keys(vars), name) {
+                fail("i18n: message '" + key + "' wants '" + name + "', which was not given")
+            }
+            out = push(out, string(get(vars, name)))
+            i = j + 1
+        } else {
+            out = push(out, c)
+            i = i + 1
+        }
+    }
+    join(out, "")
+}
+
+## has(cat, key) -> whether the catalogue carries `key`.
+##
+## For deciding whether to fall back to another language, rather than catching
+## an error to find out.
+export fn has(cat, key) = contains(keys(cat.messages), string(key))
+
+## tr(cat, key, vars?) -> the message for `key`, with `{name}` placeholders filled.
+##
+## A missing key raises rather than echoing the key back. A key echoed into a
+## page looks deliberate and survives review; an error does not.
+##
+## example:
+##   tr(t, "greeting", { name: "Ada" })
+export fn tr(cat, key, vars = empty_map()) {
+    k = string(key)
+    m = get(cat.messages, k)
+    if is_null(m) { fail("i18n: no message '" + k + "' in the " + cat.lang + " catalogue") }
+    unless type_of(m) == "string" {
+        fail("i18n: '" + k + "' holds plural forms - use plural(), not tr()")
+    }
+    fill(m, vars, k)
+}
+
+## plural(cat, key, n, vars?) -> the message form that `n` selects.
+##
+## The entry is a map of CLDR categories to messages. `{n}` is filled with the
+## count unless `vars` gives it another value, because every plural message
+## wants the number in it.
+##
+## example:
+##   plural(t, "items", 3)   # entry: { one: "{n} item", other: "{n} items" }
+export fn plural(cat, key, n, vars = empty_map()) {
+    k = string(key)
+    entry = get(cat.messages, k)
+    if is_null(entry) { fail("i18n: no message '" + k + "' in the " + cat.lang + " catalogue") }
+    if type_of(entry) == "string" {
+        fail("i18n: '" + k + "' is a single message - use tr(), not plural()")
+    }
+    category = rules.select(cat.lang, n)
+    form = get(entry, category)
+    # A catalogue need not carry every category: falling back to "other" is what
+    # CLDR itself expects, and is why "other" is the one form always required.
+    chosen = if is_null(form) { get(entry, "other") } else { form }
+    if is_null(chosen) {
+        fail(
+            "i18n: '" +
+                k +
+                "' has no '" +
+                category +
+                "' form and no 'other' form in the " +
+                cat.lang +
+                " catalogue",
+        )
+    }
+    filled = if contains(keys(vars), "n") { vars } else { insert(vars, "n", n) }
+    fill(chosen, filled, k)
+}

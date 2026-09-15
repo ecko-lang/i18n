@@ -1,0 +1,133 @@
+# Tests for message catalogues, interpolation and plurals.
+#
+# Offline and deterministic: catalogues are built in memory with `catalog`, so
+# nothing here reads a file or needs a capability. `load` is the same code path
+# with `fs.read` in front of it, and is exercised by example.ecko.
+#
+# The plural cases are the point of this package. English has two forms and
+# most software stops there, which is why so much of it says "1 results" in
+# other languages.
+
+import std.test
+import "../main.ecko" as i18n
+import "../plural.ecko"
+
+EN = i18n.catalog(
+    {
+        greeting: r"Hello, {name}",
+        farewell: "Goodbye",
+        braces: r"a {{literal}} brace",
+        items: { one: r"{n} item", other: r"{n} items" },
+        files: { other: r"{n} files" },
+    },
+    "en",
+)
+
+# --- interpolation --------------------------------------------------------------
+
+test.case("a placeholder is filled from the vars", fn() {
+    test.eq(i18n.tr(EN, "greeting", { name: "Ada" }), "Hello, Ada")
+})
+
+test.case("a message with no placeholders needs no vars", fn() {
+    test.eq(i18n.tr(EN, "farewell"), "Goodbye")
+})
+
+test.case("a doubled brace is a literal brace", fn() {
+    test.eq(i18n.tr(EN, "braces"), r"a {literal} brace")
+})
+
+test.case("a missing placeholder is an error, not a blank", fn() {
+    # A half-rendered sentence shipped to a user is worse than one that fails
+    # in the test that should have caught it.
+    test.err(fn() i18n.tr(EN, "greeting"), "name")
+    test.err(fn() i18n.tr(EN, "greeting", { nmae: "Ada" }), "name")
+})
+
+test.case("a missing key raises rather than echoing the key back", fn() {
+    # An echoed key looks deliberate on a page and survives review.
+    test.err(fn() i18n.tr(EN, "nope"), "no message")
+})
+
+test.case("has answers without raising, for a fallback path", fn() {
+    test.ok(i18n.has(EN, "greeting"), "present")
+    test.ok(not i18n.has(EN, "nope"), "absent")
+})
+
+# --- the two shapes are not interchangeable ------------------------------------
+
+test.case("tr on a plural entry, and plural on a single one, both say so", fn() {
+    test.err(fn() i18n.tr(EN, "items"), "plural")
+    test.err(fn() i18n.plural(EN, "greeting", 1), "tr()")
+})
+
+# --- plurals --------------------------------------------------------------------
+
+test.case(r"English picks one and other, and fills {n} without being asked", fn() {
+    test.eq(i18n.plural(EN, "items", 1), "1 item")
+    test.eq(i18n.plural(EN, "items", 2), "2 items")
+    test.eq(i18n.plural(EN, "items", 0), "0 items")
+})
+
+test.case("a catalogue may carry only 'other'", fn() {
+    # CLDR requires "other" and nothing else, so falling back to it is correct
+    # rather than lenient.
+    test.eq(i18n.plural(EN, "files", 1), "1 files")
+})
+
+test.case("Russian has three forms and the rule is not n == 1", fn() {
+    ru = i18n.catalog(
+        { items: { one: r"{n} товар", few: r"{n} товара", many: r"{n} товаров" } },
+        "ru",
+    )
+    test.eq(i18n.plural(ru, "items", 1), "1 товар")
+    test.eq(i18n.plural(ru, "items", 2), "2 товара")
+    test.eq(i18n.plural(ru, "items", 5), "5 товаров")
+    # The cases that catch a naive implementation: 21 is "one", 11 is not.
+    test.eq(i18n.plural(ru, "items", 21), "21 товар")
+    test.eq(i18n.plural(ru, "items", 11), "11 товаров")
+    test.eq(i18n.plural(ru, "items", 22), "22 товара")
+})
+
+test.case("French counts zero with the singular", fn() {
+    test.eq(plural.select("fr", 0), "one")
+    test.eq(plural.select("fr", 1), "one")
+    test.eq(plural.select("fr", 2), "other")
+    # English does not.
+    test.eq(plural.select("en", 0), "other")
+})
+
+test.case("languages with no plural distinction always take other", fn() {
+    for lang in ["ja", "zh", "ko", "vi", "th"] {
+        for n in [0, 1, 2, 5, 100] {
+            test.eq(plural.select(lang, n), "other")
+        }
+    }
+})
+
+test.case("Arabic uses all six categories", fn() {
+    test.eq(plural.select("ar", 0), "zero")
+    test.eq(plural.select("ar", 1), "one")
+    test.eq(plural.select("ar", 2), "two")
+    test.eq(plural.select("ar", 3), "few")
+    test.eq(plural.select("ar", 11), "many")
+    test.eq(plural.select("ar", 100), "other")
+})
+
+test.case("a region tag picks the language, and an unknown one falls back", fn() {
+    test.eq(plural.select("fr-CA", 0), "one", "fr-CA is French")
+    test.eq(plural.select("pt-BR", 1), "one")
+    # An unlisted language gets the English pair - a guess, but a documented one.
+    test.eq(plural.select("xx", 1), "one")
+    test.eq(plural.select("xx", 2), "other")
+})
+
+test.case("a negative count selects on its magnitude", fn() {
+    test.eq(plural.select("en", -1), "one")
+    test.eq(plural.select("ru", -21), "one")
+})
+
+test.case("an explicit n in vars wins over the count", fn() {
+    # For "about 1,000 items" where the displayed number is formatted.
+    test.eq(i18n.plural(EN, "items", 1000, { n: "1,000" }), "1,000 items")
+})

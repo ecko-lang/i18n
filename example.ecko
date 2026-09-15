@@ -1,0 +1,17 @@
+# i18n demo: the same three messages in two languages, one of which needs
+# three plural forms.
+#
+#   ecko example.ecko
+
+import "./main.ecko" as i18n
+
+for lang in ["en", "ru"] {
+    t = i18n.load("locales/" + lang + ".json")
+    print("-- " + t.lang)
+    print("  " + i18n.tr(t, "greeting", { name: "Ada" }))
+    for n in [1, 2, 5, 21] {
+        print("  " + i18n.plural(t, "items", n))
+    }
+}
+# The point of the plural rules: English needs two forms, Russian needs three,
+# and 21 takes the same form as 1 while 11 does not.

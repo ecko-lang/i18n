@@ -1,0 +1,72 @@
+# i18n/plural - which plural form a count selects, per language.
+#
+# English has two forms and most people stop there, which is why so much
+# software says "1 results" in other languages. Russian has three and the rule
+# is not "n == 1": 21 takes the same form as 1, 22 the same as 2, and 11 takes
+# neither. Arabic has six.
+#
+# The rules below are the CLDR cardinal rules for the languages listed, by their
+# category names, so a catalogue written against CLDR works unchanged. A
+# language not listed falls back to the English pair, which is a guess - but a
+# documented one, and better than refusing to render anything.
+
+## CATEGORIES is the CLDR order. A catalogue lists the forms it has in this
+## order, and `select` names which one a count wants.
+export CATEGORIES = ["zero", "one", "two", "few", "many", "other"]
+
+# The language part of a tag: "fr-CA" and "fr" both choose French.
+fn base(lang) {
+    parts = split(lower(string(lang)), "-")
+    if len(parts) == 0 { "en" } else { parts[0] }
+}
+
+## select(lang, n) -> the CLDR category `n` takes in `lang`.
+##
+## example:
+##   select("en", 1)   # "one"
+##   select("ru", 21)  # "one"  - Russian, not a typo
+export fn select(lang, n) {
+    count = if n < 0 { 0 - n } else { n }
+    l = base(lang)
+
+    # Languages with no plural distinction at all.
+    if contains(["ja", "zh", "ko", "vi", "th", "id", "ms"], l) { return "other" }
+
+    # French and Portuguese count 0 with the singular.
+    if contains(["fr", "pt"], l) { return if count <= 1 { "one" } else { "other" } }
+
+    if l == "ru" or l == "uk" {
+        mod10 = count % 10
+        mod100 = count % 100
+        if mod10 == 1 and mod100 != 11 { return "one" }
+        if mod10 >= 2 and mod10 <= 4 and (mod100 < 12 or mod100 > 14) { return "few" }
+        return "many"
+    }
+
+    if l == "pl" {
+        mod10 = count % 10
+        mod100 = count % 100
+        if count == 1 { return "one" }
+        if mod10 >= 2 and mod10 <= 4 and (mod100 < 12 or mod100 > 14) { return "few" }
+        return "many"
+    }
+
+    if l == "cs" or l == "sk" {
+        if count == 1 { return "one" }
+        if count >= 2 and count <= 4 { return "few" }
+        return "other"
+    }
+
+    if l == "ar" {
+        mod100 = count % 100
+        if count == 0 { return "zero" }
+        if count == 1 { return "one" }
+        if count == 2 { return "two" }
+        if mod100 >= 3 and mod100 <= 10 { return "few" }
+        if mod100 >= 11 and mod100 <= 99 { return "many" }
+        return "other"
+    }
+
+    # English and everything not named above.
+    if count == 1 { "one" } else { "other" }
+}
