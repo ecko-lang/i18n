@@ -44,7 +44,7 @@ When the messages are embedded or fetched rather than read from disk, build the
 catalogue directly and skip the capability:
 
 ```ecko
-t = i18n.catalog({ greeting: "Hello, {name}" }, "en")
+t = i18n.catalog({ greeting: r"Hello, {name}" }, "en")
 ```
 
 ## Plurals are the reason this exists

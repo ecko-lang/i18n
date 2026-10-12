@@ -49,7 +49,7 @@ export fn load(path, lang = null) {
 ## than read from disk. Needs no capabilities.
 ##
 ## example:
-##   catalog({ greeting: "Hello, {name}" }, "en")
+##   catalog({ greeting: r"Hello, {name}" }, "en")
 export fn catalog(messages, lang) {
     unless type_of(messages) == "map" { fail("i18n: a catalogue is a map of keys to messages") }
     # "pt-BR.json" and "pt-BR" both mean pt-BR.
